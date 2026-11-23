@@ -1,0 +1,1 @@
+{"ts": "2026-11-21T12:33:57.514265+00:00", "action": "create", "event_id": "bkd462ab3ce63f4849a6239bdb", "event": {"summary": "Dental appointment", "description": "Booking ref appt_eacba595ddd5. Booked via the clinic assistant.", "start": {"dateTime": "2026-11-23T05:00:00Z"}, "end": {"dateTime": "2026-11-23T05:30:00Z"}}}

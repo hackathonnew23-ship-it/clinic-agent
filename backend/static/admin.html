@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clinic admin</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f4f8f8; color: #1d2b2f; }
+  header { background: #0e7c86; color: #fff; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
+  nav { display: flex; gap: 8px; padding: 12px 24px; flex-wrap: wrap; }
+  nav button { border: 1px solid #0e7c86; background: #fff; color: #0e7c86; border-radius: 16px; padding: 6px 14px; cursor: pointer; }
+  nav button.on { background: #0e7c86; color: #fff; }
+  main { padding: 0 24px 40px; overflow-x: auto; }
+  table { border-collapse: collapse; background: #fff; min-width: 100%; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid #e3eced; text-align: left; vertical-align: top; font-size: 14px; }
+  input, select, textarea { font: inherit; padding: 5px 8px; border: 1px solid #c9d8da; border-radius: 6px; }
+  textarea { width: 100%; min-height: 50px; box-sizing: border-box; }
+  button.p { background: #0e7c86; color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button.d { background: #fff; color: #c62828; border: 1px solid #c62828; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  .chk { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; }
+  tr.add td { background: #eef6f6; }
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 18px; border-radius: 8px; color: #fff; background: #2e7d32; display: none; }
+  #toast.bad { background: #c62828; }
+  #login { max-width: 320px; margin: 80px auto; background: #fff; padding: 24px; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+<script>
+const WD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const TABS = ["Doctors", "Services", "Timings", "Holidays", "FAQs"];
+let TOKEN = sessionStorage.getItem("admin_tok") || "", DATA = null, TAB = "Doctors";
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function toast(msg, bad) {
+  const t = document.getElementById("toast"); t.textContent = msg; t.className = bad ? "bad" : ""; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => { t.style.display = "none"; }, 2500);
+}
+async function api(method, path, body) {
+  const r = await fetch("/admin/api" + path, { method, headers: { "Content-Type": "application/json", "X-Admin-Token": TOKEN },
+                                               body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) { logout(); throw new Error("Wrong admin password"); }
+  if (!r.ok) {
+    let m = "Error " + r.status;
+    try { const j = await r.json(); m = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch (e) { /* keep default */ }
+    throw new Error(m);
+  }
+  return r.json();
+}
+function logout() { TOKEN = ""; sessionStorage.removeItem("admin_tok"); DATA = null; render(); }
+async function load() { DATA = await api("GET", "/overview"); render(); }
+function btn(label, cls, fn, ask) {
+  const b = el("button", cls, label);
+  b.onclick = async () => {
+    if (ask && !confirm(ask)) return;
+    try { await fn(); toast("Saved"); await load(); } catch (e) { toast(e.message, true); }
+  };
+  return b;
+}
+function inp(v, type, width) { const i = el("input"); i.type = type || "text"; i.value = v == null ? "" : v; if (width) i.style.width = width; return i; }
+function chk(v) { const c = el("input"); c.type = "checkbox"; c.checked = !!v; return c; }
+function lab(cb, text) { const s = el("span", "chk"); s.append(cb, document.createTextNode(text)); return s; }
+function sel(options, value) {
+  const s = el("select"); options.forEach(([v, l]) => { const o = el("option", "", l); o.value = v; s.appendChild(o); }); s.value = value; return s;
+}
+function td(...kids) { const c = el("td"); kids.forEach((k) => c.append(k)); return c; }
+function tr(...cells) { const r = el("tr"); cells.forEach((c) => r.append(c)); return r; }
+function table(heads, rows, addRow) {
+  const t = el("table"); const h = el("tr"); heads.forEach((x) => h.append(el("th", "", x))); t.append(h);
+  rows.forEach((r) => t.append(r)); if (addRow) { addRow.className = "add"; t.append(addRow); } return t;
+}
+
+function doctorsView() {
+  const svcBoxes = (ids) => {
+    const wrap = el("div"); const boxes = DATA.services.map((s) => { const c = chk(ids.includes(s.id)); wrap.append(lab(c, s.name)); return [s.id, c]; });
+    return [wrap, () => boxes.filter((b) => b[1].checked).map((b) => b[0])];
+  };
+  const rows = DATA.doctors.map((d) => {
+    const name = inp(d.name), spec = inp(d.specialty), on = chk(d.active), [wrap, ids] = svcBoxes(d.service_ids);
+    return tr(td(name), td(spec), td(lab(on, "Active")), td(wrap),
+      td(btn("Save", "p", () => api("PUT", "/doctor/" + d.id, { name: name.value, specialty: spec.value, active: on.checked, service_ids: ids() }))));
+  });
+  const name = inp(""), spec = inp(""), [wrap, ids] = svcBoxes([]);
+  name.placeholder = "New doctor name"; spec.placeholder = "Specialty";
+  const add = tr(td(name), td(spec), td(el("span", "", "Active")), td(wrap),
+    td(btn("Add doctor", "p", () => api("POST", "/doctor", { name: name.value, specialty: spec.value, active: true, service_ids: ids() }))));
+  return table(["Name", "Specialty", "Status", "Services offered", ""], rows, add);
+}
+
+function servicesView() {
+  const rows = DATA.services.map((s) => {
+    const name = inp(s.name), fee = inp(s.fee_rupees, "number", "90px"), dur = inp(s.duration_min, "number", "70px"), on = chk(s.active);
+    return tr(td(name), td(fee), td(dur), td(lab(on, "Active")),
+      td(btn("Save", "p", () => api("PUT", "/service/" + s.id, { name: name.value, fee_rupees: parseFloat(fee.value), duration_min: parseInt(dur.value, 10), active: on.checked }))));
+  });
+  const name = inp(""), fee = inp("", "number", "90px"), dur = inp(30, "number", "70px");
+  name.placeholder = "New service";
+  const add = tr(td(name), td(fee), td(dur), td(el("span", "", "Active")),
+    td(btn("Add service", "p", () => api("POST", "/service", { name: name.value, fee_rupees: parseFloat(fee.value), duration_min: parseInt(dur.value, 10), active: true }))));
+  return table(["Service", "Fee (Rs)", "Minutes", "Status", ""], rows, add);
+}
+
+function timingsView() {
+  const rows = DATA.hours.map((h) => tr(td(el("span", "", h.doctor_name)), td(el("span", "", WD[h.weekday])),
+    td(el("span", "", h.start)), td(el("span", "", h.end)), td(btn("Delete", "d", () => api("DELETE", "/hours/" + h.id), "Delete this timing?"))));
+  const doc = sel(DATA.doctors.map((d) => [d.id, d.name]), DATA.doctors.length ? DATA.doctors[0].id : "");
+  const day = sel(WD.map((w, i) => [i, w]), 0), start = inp("09:00", "time"), end = inp("13:00", "time");
+  const add = tr(td(doc), td(day), td(start), td(end),
+    td(btn("Add timing", "p", () => api("POST", "/hours", { doctor_id: doc.value, weekday: parseInt(day.value, 10), start: start.value, end: end.value }))));
+  return table(["Doctor", "Day", "From", "To", ""], rows, add);
+}
+
+function holidaysView() {
+  const rows = DATA.holidays.map((h) => tr(td(el("span", "", h.day)), td(el("span", "", h.reason)),
+    td(btn("Delete", "d", () => api("DELETE", "/holiday/" + h.id), "Delete this holiday?"))));
+  const day = inp("", "date"), reason = inp(""); reason.placeholder = "Reason";
+  const add = tr(td(day), td(reason), td(btn("Add holiday", "p", () => api("POST", "/holiday", { day: day.value, reason: reason.value }))));
+  return table(["Date", "Reason", ""], rows, add);
+}
+
+function faqsView() {
+  const LANGS = [["en", "English"], ["hi", "Hindi"], ["kn", "Kannada"], ["tu", "Tulu"]];
+  const rows = DATA.faqs.map((f) => {
+    const lang = sel(LANGS, f.lang), q = inp(f.question), a = el("textarea"); a.value = f.answer; q.style.width = "100%";
+    return tr(td(lang), td(q), td(a), td(btn("Save", "p", () => api("PUT", "/faq/" + f.id, { lang: lang.value, question: q.value, answer: a.value })),
+      btn("Delete", "d", () => api("DELETE", "/faq/" + f.id), "Delete this FAQ?")));
+  });
+  const lang = sel(LANGS, "en"), q = inp(""), a = el("textarea"); q.placeholder = "Question"; q.style.width = "100%"; a.placeholder = "Answer";
+  const add = tr(td(lang), td(q), td(a), td(btn("Add FAQ", "p", () => api("POST", "/faq", { lang: lang.value, question: q.value, answer: a.value }))));
+  return table(["Language", "Question", "Answer", ""], rows, add);
+}
+
+const VIEWS = { Doctors: doctorsView, Services: servicesView, Timings: timingsView, Holidays: holidaysView, FAQs: faqsView };
+
+function loginView() {
+  const box = el("div"); box.id = "login"; box.append(el("b", "", "Clinic admin"));
+  const pw = inp("", "password"); pw.placeholder = "Admin password";
+  const go = el("button", "p", "Log in");
+  const doLogin = async () => { TOKEN = pw.value; sessionStorage.setItem("admin_tok", TOKEN); try { await load(); } catch (e) { toast(e.message, true); } };
+  go.onclick = doLogin; pw.onkeydown = (e) => { if (e.key === "Enter") doLogin(); };
+  box.append(pw, go); return box;
+}
+
+function render() {
+  const app = document.getElementById("app"); app.textContent = "";
+  if (!TOKEN || !DATA) { app.append(loginView()); return; }
+  const head = el("header"); head.append(el("b", "", DATA.clinic.name + " - admin"));
+  const out = el("button", "d", "Log out"); out.onclick = logout; head.append(out);
+  const nav = el("nav");
+  TABS.forEach((t) => { const b = el("button", t === TAB ? "on" : "", t); b.onclick = () => { TAB = t; render(); }; nav.append(b); });
+  const main = el("main"); main.append(VIEWS[TAB]());
+  app.append(head, nav, main);
+}
+
+render();
+if (TOKEN) load().catch(() => {});
+</script>
+</body>
+</html>
